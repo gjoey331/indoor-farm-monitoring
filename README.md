@@ -95,9 +95,6 @@ Returns API health status.
 # Run all tests
 dotnet test
 
-# Run tests with coverage
-dotnet test --collect:"XPlat Code Coverage"
-
 # Run specific test class
 dotnet test --filter "PlantSensorServiceTests"
 ```
