@@ -12,13 +12,21 @@ namespace IndoorFarmMonitoring.Services
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<ExternalApiService> _logger;
-        private readonly string _sensorApiUrl = "http://3.0.148.231:8010/sensor-readings";
-        private readonly string _plantConfigApiUrl = "http://3.0.148.231:8020/plant-configurations";
+        private readonly string _sensorApiUrl;
+        private readonly string _plantConfigApiUrl;
 
         public ExternalApiService(HttpClient httpClient, ILogger<ExternalApiService> logger)
         {
             _httpClient = httpClient;
             _logger = logger;
+
+            _sensorApiUrl = Environment.GetEnvironmentVariable("SENSOR_API_URL")
+                           ?? "http://3.0.148.231:8010/sensor-readings";
+            _plantConfigApiUrl = Environment.GetEnvironmentVariable("PLANT_CONFIG_API_URL")
+                                ?? "http://3.0.148.231:8020/plant-configurations";
+
+            _logger.LogInformation("Configured API URLs - Sensor: {SensorUrl}, Config: {ConfigUrl}",
+                _sensorApiUrl, _plantConfigApiUrl);
         }
 
         public async Task<List<SensorReading>> GetSensorReadingsAsync()
@@ -36,7 +44,7 @@ namespace IndoorFarmMonitoring.Services
                 }
 
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                _logger.LogInformation("Raw sensor JSON: {Json}", jsonContent.Length > 500 ? jsonContent.Substring(0, 500) + "..." : jsonContent);
+                _logger.LogInformation("Raw sensor JSON length: {Length}", jsonContent.Length);
 
                 if (string.IsNullOrWhiteSpace(jsonContent))
                 {
@@ -52,22 +60,12 @@ namespace IndoorFarmMonitoring.Services
 
                     if (element.TryGetProperty("tray_id", out var trayIdElement))
                     {
-                        reading.TrayIdValue = trayIdElement.ValueKind == JsonValueKind.String
-                            ? trayIdElement.GetString()
-                            : trayIdElement.GetRawText();
+                        reading.TrayIdValue = ParseTrayIdToInt(trayIdElement);
                     }
 
                     if (element.TryGetProperty("timestamp", out var timestampElement))
                     {
-                        if (timestampElement.ValueKind == JsonValueKind.String)
-                        {
-                            DateTime.TryParse(timestampElement.GetString(), out var parsedTime);
-                            reading.Timestamp = parsedTime != default ? parsedTime : DateTime.UtcNow;
-                        }
-                        else
-                        {
-                            reading.Timestamp = DateTime.UtcNow;
-                        }
+                        reading.Timestamp = ParseDateTime(timestampElement);
                     }
                     else
                     {
@@ -107,7 +105,7 @@ namespace IndoorFarmMonitoring.Services
                 }
 
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                _logger.LogInformation("Raw plant config JSON: {Json}", jsonContent.Length > 500 ? jsonContent.Substring(0, 500) + "..." : jsonContent);
+                _logger.LogInformation("Raw plant config JSON length: {Length}", jsonContent.Length);
 
                 if (string.IsNullOrWhiteSpace(jsonContent))
                 {
@@ -123,9 +121,7 @@ namespace IndoorFarmMonitoring.Services
 
                     if (element.TryGetProperty("tray_id", out var trayIdElement))
                     {
-                        config.TrayIdValue = trayIdElement.ValueKind == JsonValueKind.String
-                            ? trayIdElement.GetString()
-                            : trayIdElement.GetRawText();
+                        config.TrayIdValue = ParseTrayIdToInt(trayIdElement);
                     }
 
                     if (element.TryGetProperty("plant_type", out var plantTypeElement))
@@ -152,21 +148,104 @@ namespace IndoorFarmMonitoring.Services
             }
         }
 
+        private int ParseTrayIdToInt(JsonElement trayIdElement)
+        {
+            try
+            {
+                switch (trayIdElement.ValueKind)
+                {
+                    case JsonValueKind.Number:
+                        return trayIdElement.GetInt32();
+
+                    case JsonValueKind.String:
+                        var stringValue = trayIdElement.GetString();
+                        if (string.IsNullOrEmpty(stringValue))
+                            return 0;
+
+                        if (int.TryParse(stringValue, out var intValue))
+                        {
+                            return intValue;
+                        }
+
+                        if (stringValue.StartsWith("TRAY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var numberPart = stringValue.Substring(4);
+                            if (int.TryParse(numberPart, out var trayNumber))
+                            {
+                                return trayNumber;
+                            }
+                        }
+
+                        var digits = new string(stringValue.Where(char.IsDigit).ToArray());
+                        if (!string.IsNullOrEmpty(digits) && int.TryParse(digits, out var digitValue))
+                        {
+                            return digitValue;
+                        }
+
+                        break;
+                }
+
+                _logger.LogWarning("Could not parse tray_id from value: {Value}", trayIdElement.GetRawText());
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing tray_id: {Value}", trayIdElement.GetRawText());
+                return 0;
+            }
+        }
+
+        private DateTime ParseDateTime(JsonElement timestampElement)
+        {
+            try
+            {
+                if (timestampElement.ValueKind == JsonValueKind.String)
+                {
+                    var timestampString = timestampElement.GetString();
+                    if (DateTime.TryParse(timestampString, out var parsedTime))
+                    {
+                        return parsedTime;
+                    }
+                }
+
+                return DateTime.UtcNow;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing timestamp: {Value}", timestampElement.GetRawText());
+                return DateTime.UtcNow;
+            }
+        }
+
         private double GetDoubleProperty(JsonElement element, string propertyName)
         {
-            if (element.TryGetProperty(propertyName, out var property))
+            try
             {
-                if (property.ValueKind == JsonValueKind.Number)
+                if (element.TryGetProperty(propertyName, out var property))
                 {
-                    return property.GetDouble();
+                    switch (property.ValueKind)
+                    {
+                        case JsonValueKind.Number:
+                            return property.GetDouble();
+
+                        case JsonValueKind.String:
+                            var stringValue = property.GetString();
+                            if (double.TryParse(stringValue, out var parsed))
+                            {
+                                return parsed;
+                            }
+                            break;
+                    }
                 }
-                if (property.ValueKind == JsonValueKind.String &&
-                    double.TryParse(property.GetString(), out var parsed))
-                {
-                    return parsed;
-                }
+
+                return 0.0;
             }
-            return 0.0;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing property {PropertyName}: {Value}",
+                    propertyName, element.GetRawText());
+                return 0.0;
+            }
         }
     }
 }

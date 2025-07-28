@@ -30,12 +30,30 @@ This system fetches data from external APIs, combines and processes the informat
 4. **Access the API**
    - API Base URL: `https://localhost:7000` (or `http://localhost:5000`)
    - Swagger UI: `https://localhost:7000/swagger`
+   - Environment Info: `https://localhost:7000/api/env-info` 
 
 ## Configuration
 
-### Storage Options
+### Environment Variables
 
-Configure the storage type in `appsettings.json`:
+The application uses environment variables for configuration. Copy .env.example to .env and customize:
+ ```bash
+# .env (Development )
+ASPNETCORE_ENVIRONMENT=Development
+STORAGE_TYPE=Postgresql
+JSON_FILE_PATH=plant_data_local.json
+POSTGRES_CONNECTION_STRING=Host=localhost;Database=IndoorFarmDb;Username=postgres;Password=yourpassword
+API_TIMEOUT_SECONDS=30
+SENSOR_API_URL=http://3.0.148.231:8010/sensor-readings
+PLANT_CONFIG_API_URL=http://3.0.148.231:8020/plant-configurations
+
+# Logging Configuration
+LOG_LEVEL=Information
+LOG_TO_CONSOLE=true
+LOG_TO_DEBUG=true
+ ```
+
+### Storage Options
 
 #### 1. In-Memory Storage (Default)
 ```json
@@ -84,6 +102,9 @@ Retrieves the latest data for a specific tray.
 
 ### 4. Health Check
 **Endpoint**: `GET /api/PlantSensor/health`
+
+### 5. Environment Info (Development Only)
+**Endpoint**: `GET /api/env-info`
 
 Returns API health status.
 
