@@ -6,7 +6,7 @@ This system fetches data from external APIs, combines and processes the informat
 ### Prerequisites
 
 - .NET 8.0 SDK or later
-- PostgreSQL (optional, can configure as JSON or in-memory storage type if dont wan to use PostgreSQL)
+- PostgreSQL (optional, can configure as JSON or in-memory storage type if you don't want to use PostgreSQL)
 - Git
 
 ### Installation
